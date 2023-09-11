@@ -62,7 +62,7 @@ if __name__ == '__main__':
     state_dict_path = '20230209-2_20230209-3_EXP/good_2023-08-25/RefitNN-state_dict.pt'
 # load model
     ReftiNN_model = torch.load(model_path).to(device)
-    checkpoints = torch.load(state_dict_path)
+    # checkpoints = torch.load(state_dict_path)
     # print('checkpoints:', checkpoints)
     ReftiNN_model.eval()
     ReftiNN_model.requires_grad_(False)
