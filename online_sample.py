@@ -88,7 +88,9 @@ if __name__ == '__main__':
         pred_vel = torch.tensor([])
         for j, xx in enumerate(X):
             # stime4test = time.time_ns()
-            pred_vel = torch.cat([pred_vel, ReftiNN_model(torch.unsqueeze(xx, dim=0)).to('cpu')])
+            vel_val = torch.unsqueeze(xx, dim=0)
+            predict_vel = ReftiNN_model(vel_val).to('cpu')
+            pred_vel = torch.cat([pred_vel, predict_vel])
             # print("运算所需时间", (time.time_ns() - stime4test) / 1e9)
         if label_state == 'vel':
             true_traj = np.cumsum(test_traj_list[i][:, 2:], axis=0) * bin_size
