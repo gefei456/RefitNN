@@ -16,83 +16,34 @@ import pickle
 import time
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
-
-
-def train_NN(dataloader, model, loss_fn, optimizer, label_state):
-    size = len(dataloader.dataset)
-    model.train()
-    total_loss = 0
-    num_batches = 0
-    for i, (X, pos, vel) in enumerate(dataloader):
-        # Compute prediction and loss
-        pred = model(X)
-        if label_state == 'vel':
-            loss = loss_fn(pred, vel)
-        elif label_state == 'pos':
-            loss = loss_fn(pred, pos)
-        else:
-            loss = loss_fn(pred, pos + vel)
-        total_loss += loss.item()
-        # Backpropagation
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
-        num_batches += 1
-        if i % 10 == 0:
-            loss, current = loss.item(), (i + 1) * len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-    train_loss = total_loss / num_batches
-    print(f"Train loss:\n {train_loss:>8f} \n")
-    return train_loss
-
-
-def test_NN(dataloader, model, loss_fn, label_state):
-    model.eval()
-    num_batches = 0
-    test_loss, correct = 0, 0
-    # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
-    # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
-    with torch.no_grad():
-        for i, (X, pos, vel) in enumerate(dataloader):
-            pred = model(X)
-            if label_state == 'vel':
-                loss = loss_fn(pred, vel)
-            elif label_state == 'pos':
-                loss = loss_fn(pred, pos)
-            else:
-                loss = loss_fn(pred, pos + vel)
-            test_loss += loss.item()
-            num_batches += 1
-    test_loss /= num_batches
-    print(f"Test loss:\n {test_loss:>8f} \n")
-    return test_loss
+from RefitNN import train_NN
+from RefitNN import test_NN
 
 
 if __name__ == '__main__':
     isDebugMode = False
     totalStartTime = time.time_ns()
-    learning_rate = 1e-5
+    learning_rate = 1e-4
     input_size = 256
     PCA_ncomp = input_size
     hidden_size = [256, 256, 256]
-    ConvSizeOut = 16  # 16 -> 3
+    ConvSizeOut = 3  # 16 -> 3
     ConvSize = 3  # 3 -> 1
-    label_state = 'vel'
+    label_state = 'pos'
     if label_state == 'vel' or 'pos':
         num_states = 2
     else:
         num_states = 4
-    batchSize = 1024
+    batchSize = 64
     session_name = '20230209-3'
     bin_size = 0.05
-    only4Test = True
     torch.manual_seed(13)
     spike_lag = -0.14
     isAlign = 'noAlign'
     isMerged = True
     isPCA = False
     epochs = 10000
-    patience = 1000
+    patience = 2000
     path_head = './data_backup/'
 
     # load pkl file
@@ -135,7 +86,7 @@ if __name__ == '__main__':
     ReftiNN_model = FC4L256Np05_CNN1L16N_SBP(input_size, hidden_size, ConvSize, ConvSizeOut, num_states).to(device)
     if isDebugMode:
         print('Model:', ReftiNN_model)
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.MSELoss(reduction='sum')
     optimizer = torch.optim.Adam(ReftiNN_model.parameters(), lr=learning_rate, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.01)
     train_dataset, test_dataset = createDataset(data_RefitNN)
     train_dataloader = DataLoader(train_dataset, batch_size=batchSize, shuffle=True, drop_last=True)

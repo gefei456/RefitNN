@@ -8,26 +8,24 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-from RefitNN import FC4L256Np05_CNN1L16N_SBP
-from create_dataset import createDataset
 import pickle
 import time
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from pytorch_model_summary import summary
 import matplotlib
+from RefitNN import initModel
 
 if __name__ == '__main__':
     input_size = 256
     PCA_ncomp = input_size
     ConvSize = 3  # 3 -> 1
     label_state = 'vel'
-    batchSize = 1024
+    batchSize = 64
     session_name = '20230209-3'
     bin_size = 0.05
     spike_lag = -0.14
-    isAlign = 'noAlign'
+    isAlign = 'Align'
     path_head = 'data_backup/'
     isMerged = True
 
@@ -61,11 +59,8 @@ if __name__ == '__main__':
     model_path = '20230209-2_20230209-3_EXP/good_2023-08-25/RefitNN-Model.pth'
     state_dict_path = '20230209-2_20230209-3_EXP/good_2023-08-25/RefitNN-state_dict.pt'
 # load model
-    ReftiNN_model = torch.load(model_path).to(device)
-    # checkpoints = torch.load(state_dict_path)
-    # print('checkpoints:', checkpoints)
-    ReftiNN_model.eval()
-    ReftiNN_model.requires_grad_(False)
+    ReftiNN_model = initModel(model_path, state_dict_path)
+    # time.sleep(60)
     # print(ReftiNN_model)
 
     print(summary(ReftiNN_model, torch.zeros(batchSize, PCA_ncomp, ConvSize).to(device), show_input=True,
@@ -87,11 +82,11 @@ if __name__ == '__main__':
         # test real time predict
         pred_vel = torch.tensor([])
         for j, xx in enumerate(X):
-            # stime4test = time.time_ns()
+            stime4test = time.time_ns()
             vel_val = torch.unsqueeze(xx, dim=0)
-            predict_vel = ReftiNN_model(vel_val).to('cpu')
+            predict_vel = ReftiNN_model.predict(vel_val).to('cpu')
             pred_vel = torch.cat([pred_vel, predict_vel])
-            # print("运算所需时间", (time.time_ns() - stime4test) / 1e9)
+            print("运算所需时间", (time.time_ns() - stime4test) / 1e9)
         if label_state == 'vel':
             true_traj = np.cumsum(test_traj_list[i][:, 2:], axis=0) * bin_size
             pred_traj = np.cumsum(pred_vel.numpy(), axis=0) * bin_size

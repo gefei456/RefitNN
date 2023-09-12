@@ -27,11 +27,11 @@ etime_bias = 0.0
 SAVEFILE = False
 screenWeight = 1280
 screenHeight = 1024
-spike_lag = -0.14
+spike_lag = -0.0
 testIndex = 0
-bin_size = 0.05
+bin_size = 0.02
 pre_bin_num = 3
-isAlign = 'noAlign'
+isAlign = 'Align'
 
 if __name__ == '__main__':
 
@@ -79,6 +79,7 @@ if __name__ == '__main__':
         truthPointsFixed = scio.loadmat(dataPath)['truthPointsFixed']
         spike_data = scio.loadmat(dataPath)['spike_data'][:, 0]
         trial_fixed = scio.loadmat(dataPath)['trialData']
+        trial_target = scio.loadmat(dataPath)['targetTimeList']
 
         for i, trial in enumerate(trial_fixed):
             trial[0] += stime_bias
@@ -124,12 +125,14 @@ if __name__ == '__main__':
     HP_new_list = np.array([]).reshape(0, 2)
     X_Feature_list = []
     X_Truth_list = []
+    target_pos_list = []
     for i, trial in enumerate(trial_fixed):
         X_Feature = []
         X_Truth = np.array([]).reshape(0, 4)
         start_time = trial[0]
         end_time = trial[1]
-
+        target_pos_list.append(np.array([np.interp(np.mean(trial_target[i]), valid_truth[:, 0], valid_truth[:, 1]),
+                               np.interp(np.mean(trial_target[i]), valid_truth[:, 0], valid_truth[:, 2])]))
         bin_timeStamps = np.arange(start_time, end_time, bin_size)
         Time_new_list = np.hstack((Time_new_list, bin_timeStamps))
 
@@ -150,8 +153,8 @@ if __name__ == '__main__':
             if np.sum(np.isnan(HP_list[j, :])) > 0:
                 continue
             else:
-                # pos_local = HP_list[j, :] - HP_list[0, :]
-                pos_local = HP_list[j, :]
+                pos_local = HP_list[j, :] - HP_list[0, :]
+                # pos_local = HP_list[j, :]
                 HP_fix_list = np.vstack((HP_fix_list, pos_local))
 
         HP_len = len(HP_fix_list)
@@ -196,7 +199,8 @@ if __name__ == '__main__':
     plt.show()
 
 # 保存
-    file_to_save = {"truth_traj": X_Truth_list, "spike_list": X_Feature_list, "label_list": list(trial_fixed[:, 2])}
+    file_to_save = {"truth_traj": X_Truth_list, "spike_list": X_Feature_list, "label_list": list(trial_fixed[:, 2]),
+                    "tgpos_list": target_pos_list}
     with open(f"{session_name}_{bin_size}_{isAlign}_{spike_lag}_ReNN.pkl", "wb") as f:
         pickle.dump(file_to_save, f)
     # np.save(f"{session_name}_ReNN.npy", file_to_save)

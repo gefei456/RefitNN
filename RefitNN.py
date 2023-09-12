@@ -4,11 +4,12 @@
 # @Author:      WGF
 # @File:        RefitNN.py
 # @Description:
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # Helper Function
 def flatten(x, start_dim=1, end_dim=-1):
     return x.flatten(start_dim=start_dim, end_dim=end_dim)
@@ -40,11 +41,11 @@ class FC4L256Np05_CNN1L16N_SBP(nn.Module):
 
         # nn.init package contains convenient initialization methods
         # https://pytorch.org/docs/stable/nn.init.html#torch.nn.init.kaiming_normal_
-        nn.init.kaiming_normal_(self.cn1.weight, nonlinearity='tanh')
-        nn.init.kaiming_normal_(self.fc1.weight, nonlinearity='tanh')
-        nn.init.kaiming_normal_(self.fc2.weight, nonlinearity='tanh')
-        nn.init.kaiming_normal_(self.fc3.weight, nonlinearity='tanh')
-        nn.init.kaiming_normal_(self.fc4.weight, nonlinearity='tanh')
+        nn.init.kaiming_normal_(self.cn1.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc1.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc2.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc3.weight, nonlinearity='relu')
+        nn.init.kaiming_normal_(self.fc4.weight, nonlinearity='relu')
         # nn.init.kaiming_normal_(self.fc6.weight, nonlinearity='relu')
         nn.init.zeros_(self.cn1.bias)
         nn.init.zeros_(self.fc1.bias)
@@ -89,6 +90,126 @@ class FC4L256Np05_CNN1L16N_SBP(nn.Module):
 
         return scores
 
+    def predict(self, X, weight=0, target_pos=None):
+        '''
+        模型预测接口，包含refit模式（TODO..）
+        :param X:
+        :param weight:
+        :param target_pos:
+        :return:
+        '''
+        # if target_pos != None:
+        #     X_new = refitVelocity(target_pos, X, weight)
+        #     self.train()
+        #     self.requires_grad_(True)
+        #     return self.forward(X_new).to('cpu')
+        # else:
+        return self.forward(X)
+
+
+def train_NN(dataloader, model, loss_fn, optimizer, label_state):
+    size = len(dataloader.dataset)
+    model.train()
+    total_loss = 0
+    num_batches = 0
+    for i, (X, pos, vel) in enumerate(dataloader):
+        # Compute prediction and loss
+        pred = model(X)
+        if label_state == 'vel':
+            loss = loss_fn(pred, vel)
+        elif label_state == 'pos':
+            loss = loss_fn(pred, pos)
+        else:
+            loss = loss_fn(pred, pos + vel)
+        total_loss += loss.item()
+        # Backpropagation
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        num_batches += 1
+        if i % 10 == 0:
+            loss, current = loss.item(), (i + 1) * len(X)
+            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+    train_loss = total_loss / num_batches
+    print(f"Train loss:\n {train_loss:>8f} \n")
+    return train_loss
+
+
+def test_NN(dataloader, model, loss_fn, label_state):
+    model.eval()
+    num_batches = 0
+    test_loss, correct = 0, 0
+    # Evaluating the model with torch.no_grad() ensures that no gradients are computed during test mode
+    # also serves to reduce unnecessary gradient computations and memory usage for tensors with requires_grad=True
+    with torch.no_grad():
+        for i, (X, pos, vel) in enumerate(dataloader):
+            pred = model(X)
+            if label_state == 'vel':
+                loss = loss_fn(pred, vel)
+            elif label_state == 'pos':
+                loss = loss_fn(pred, pos)
+            else:
+                loss = loss_fn(pred, pos + vel)
+            test_loss += loss.item()
+            num_batches += 1
+    test_loss /= num_batches
+    print(f"Test loss:\n {test_loss:>8f} \n")
+    return test_loss
+
+def initModel(model_path:str, state_dict_path:str, isDebug=False, test=True):
+    '''
+    模型初始化接口
+    :param model_path: 待加载模型路径
+    :param state_dict_path: 待加载模型训练参数
+    :param isDebug: debug模式
+    :param test: 测试（。。）
+    :return:
+    '''
+    ReftiNN_model = torch.load(model_path).to(device)
+    checkpoints = torch.load(state_dict_path)
+    if isDebug:
+        print('checkpoints:', checkpoints)
+    ReftiNN_model.eval()
+    ReftiNN_model.requires_grad_(False)
+    if test:
+        vel_val = torch.zeros((1, 256, 3)).to(device)
+        preV = ReftiNN_model(vel_val).to('cpu')
+    return ReftiNN_model
+
+import math as mt
+def refitVelocity(target_pos, X, weight):
+    '''
+    refit计算旋转角度
+    :param target_pos: 目标位置坐标
+    :param x_state_true: 输入状态
+    :param weight: 旋转权重
+    :return: 更新后速度向量
+    '''
+    # 预测的位置和速度
+    p_loc = X[0:2].reshape(-1)
+    p_vel = X[2:4].reshape(-1)
+    speed = np.sqrt(sum((p_vel ** 2)))
+    correctVect = target_pos - p_loc
+    # 计算target方向的tvx tvy
+    vRot = speed * correctVect / np.linalg.norm(correctVect)
+    # dot 点乘求和, target方向与预测速度的角度
+    angle = np.arccos((vRot @ p_vel) / (np.linalg.norm(vRot) * np.linalg.norm(p_vel)))
+    # 根据叉乘判断target方向与预测速度的旋转方向
+    # 设矢量P = (x1, y1) ，Q = (x2, y2), P × Q = x1 * y2 - x2 * y1 。若P × Q > 0, 则P
+    # 在Q的顺时针方向.若 P × Q < 0, 则P在Q的逆时针方向；若P × Q = 0, 则P与Q共线，但可能同向也可能反向；
+    pos = p_vel[0] * vRot[1] - p_vel[1] * vRot[0]
+    if pos < 0:
+        angle = -angle
+    # 根据权重计算需要旋转的角度
+    angle = angle * weight
+    # 坐标转换矩阵
+    TranM = [[mt.cos(angle), mt.sin(angle)],
+             [-mt.sin(angle), mt.cos(angle)]]
+    # 向量旋转angle角度
+    new_vel = p_vel @ TranM
+    # new_vel = TranM @ p_vel
+    x_new = np.vstack((X[0:2, :], new_vel.reshape(-1,1)))
+    return x_new
 
 if __name__ == '__main__':
     # NN variables
